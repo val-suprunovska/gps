@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Satellite and Object Visualization</title>
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            margin: 0;
+            padding: 20px;
+        }
+        #chart {
+            width: 80%;
+            height: 600px;
+        }
+    </style>
+</head>
+<body>
+    <h2>Satellite and Object Position Visualization</h2>
+    <div id="chart"></div>
+
+    <script>
+        const satelliteData = {};
+        const satelliteColors = {};
+
+        function getRandomColor() {
+            const letters = '0123456789ABCDEF';
+            let color = '#';
+            for (let i = 0; i < 6; i++) {
+                color += letters[Math.floor(Math.random() * 16)];
+            }
+            return color;
+        }
+
+        function initChart() {
+            Plotly.newPlot('chart', [], {
+                xaxis: {
+                    title: 'X (km)',
+                    range: [0, 100], // Фіксований діапазон по осі X
+                    fixedrange: true    // Забороняє зміну масштабу
+                },
+                yaxis: {
+                    title: 'Y (km)',
+                    range: [0, 100], // Фіксований діапазон по осі Y
+                    fixedrange: true    // Забороняє зміну масштабу
+                },
+                title: 'Position of Satellites and Object'
+            });
+        }
+
+        function updateChart(data) {
+            if (!satelliteData[data.id]) {
+                satelliteData[data.id] = {
+                    x: [data.x],
+                    y: [data.y],
+                    mode: 'markers',
+                    marker: {
+                        size: 8,
+                        color: satelliteColors[data.id] || (satelliteColors[data.id] = getRandomColor())
+                    }
+                };
+                Plotly.addTraces('chart', satelliteData[data.id]);
+            } else {
+                satelliteData[data.id].x = [data.x];
+                satelliteData[data.id].y = [data.y];
+
+                Plotly.update('chart', {
+                    x: [satelliteData[data.id].x],
+                    y: [satelliteData[data.id].y]
+                }, {}, [Object.keys(satelliteData).indexOf(data.id)]);
+            }
+        }
+
+        const socket = new WebSocket('ws://localhost:4001');
+
+        socket.onopen = () => {
+            console.log('Connected to WebSocket server');
+        };
+
+        socket.onmessage = (event) => {
+            const data = JSON.parse(event.data);
+            updateChart(data);
+        };
+
+        socket.onclose = () => {
+            console.log('WebSocket connection closed');
+        };
+
+        socket.onerror = (error) => {
+            console.error('WebSocket error:', error);
+        };
+
+        initChart();
+    </script>
+</body>
+</html>
