@@ -15,7 +15,7 @@
             padding: 20px;
         }
         #chart {
-            width: 80%;
+            width: 60%;
             height: 600px;
         }
     </style>
@@ -25,55 +25,95 @@
     <div id="chart"></div>
 
     <script>
-        const satelliteData = {};
-        const satelliteColors = {};
+        const speedOfLight = 3 * 10 ** 5; // Скорость света (км/с)
+        const satellites = {}; // Данные спутников
+        const traceSatellites = {
+            x: [],
+            y: [],
+            mode: 'markers',
+            type: 'scatter',
+            name: 'Satellites',
+            marker: { color: 'blue', size: 8 }
+        };
 
-        function getRandomColor() {
-            const letters = '0123456789ABCDEF';
-            let color = '#';
-            for (let i = 0; i < 6; i++) {
-                color += letters[Math.floor(Math.random() * 16)];
-            }
-            return color;
-        }
+        const traceObject = {
+            x: [],
+            y: [],
+            mode: 'markers',
+            type: 'scatter',
+            name: 'Object',
+            marker: { color: 'red', size: 12 }
+        };
 
-        function initChart() {
-            Plotly.newPlot('chart', [], {
-                xaxis: {
-                    title: 'X (km)',
-                    range: [0, 100], // Фіксований діапазон по осі X
-                    fixedrange: true    // Забороняє зміну масштабу
-                },
-                yaxis: {
-                    title: 'Y (km)',
-                    range: [0, 100], // Фіксований діапазон по осі Y
-                    fixedrange: true    // Забороняє зміну масштабу
-                },
-                title: 'Position of Satellites and Object'
-            });
-        }
+        const layout = {
+            title: 'Satellite and Object Positions',
+            xaxis: { title: 'X Coordinate (km)', range: [-50, 100] },
+            yaxis: { title: 'Y Coordinate (km)', range: [-100, 100] }
+        };
 
-        function updateChart(data) {
-            if (!satelliteData[data.id]) {
-                satelliteData[data.id] = {
-                    x: [data.x],
-                    y: [data.y],
-                    mode: 'markers',
-                    marker: {
-                        size: 8,
-                        color: satelliteColors[data.id] || (satelliteColors[data.id] = getRandomColor())
-                    }
-                };
-                Plotly.addTraces('chart', satelliteData[data.id]);
+        Plotly.newPlot('chart', [traceSatellites, traceObject], layout);
+
+        function processMessage(message) {
+            const { id, x, y, sentAt, receivedAt } = message;
+
+            if (!satellites[id]) {
+                satellites[id] = { x, y, distance: null };
+                if (Object.keys(satellites).length > 3) {
+                    delete satellites[Object.keys(satellites)[0]];
+                }
             } else {
-                satelliteData[data.id].x = [data.x];
-                satelliteData[data.id].y = [data.y];
-
-                Plotly.update('chart', {
-                    x: [satelliteData[data.id].x],
-                    y: [satelliteData[data.id].y]
-                }, {}, [Object.keys(satelliteData).indexOf(data.id)]);
+                satellites[id].x = x;
+                satellites[id].y = y;
             }
+
+            satellites[id].distance = speedOfLight * ((receivedAt - sentAt) / 1000);
+
+            if (Object.keys(satellites).length >= 3) {
+                updateChart();
+            }
+        }
+
+        function updateChart() {
+            const satelliteX = [];
+            const satelliteY = [];
+            const distances = [];
+
+            for (const id in satellites) {
+                satelliteX.push(satellites[id].x);
+                satelliteY.push(satellites[id].y);
+                distances.push(satellites[id].distance);
+            }
+
+            if (distances.length >= 3) {
+                const A = 2 * (satelliteX[1] - satelliteX[0]);
+                const B = 2 * (satelliteY[1] - satelliteY[0]);
+                const C = Math.pow(distances[0], 2) - Math.pow(distances[1], 2)
+                          - Math.pow(satelliteX[0], 2) + Math.pow(satelliteX[1], 2)
+                          - Math.pow(satelliteY[0], 2) + Math.pow(satelliteY[1], 2);
+
+                const D = 2 * (satelliteX[2] - satelliteX[1]);
+                const E = 2 * (satelliteY[2] - satelliteY[1]);
+                const F = Math.pow(distances[1], 2) - Math.pow(distances[2], 2)
+                          - Math.pow(satelliteX[1], 2) + Math.pow(satelliteX[2], 2)
+                          - Math.pow(satelliteY[1], 2) + Math.pow(satelliteY[2], 2);
+
+                const denominator = E * A - B * D;
+                if (denominator !== 0) {
+                    const Xc = (C * E - F * B) / denominator;
+                    const Yc = (C * D - A * F) / denominator;
+
+                    traceObject.x = [Xc];
+                    traceObject.y = [Yc];
+                } else {
+                    console.error('Невозможно рассчитать координаты объекта (деление на ноль).');
+                }
+            }
+
+            traceSatellites.x = satelliteX;
+            traceSatellites.y = satelliteY;
+
+            Plotly.restyle('chart', 'x', [traceSatellites.x, traceObject.x]);
+            Plotly.restyle('chart', 'y', [traceSatellites.y, traceObject.y]);
         }
 
         const socket = new WebSocket('ws://localhost:4001');
@@ -83,8 +123,8 @@
         };
 
         socket.onmessage = (event) => {
-            const data = JSON.parse(event.data);
-            updateChart(data);
+            const message = JSON.parse(event.data);
+            processMessage(message);
         };
 
         socket.onclose = () => {
@@ -94,8 +134,6 @@
         socket.onerror = (error) => {
             console.error('WebSocket error:', error);
         };
-
-        initChart();
     </script>
 </body>
 </html>
